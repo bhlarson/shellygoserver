@@ -3,6 +3,19 @@
     <title>Shelly Server</title>
   </head>
   <body>
+    <div>
+      <input type="button" value="Stream" onclick="location.href = 'http://192.168.1.15/';" class="Shelly" />
+      <input type="button" value="Garage" onclick="location.href = 'http://192.168.1.16/';" class="Shelly" />
+      <input type="button" value="Wall" onclick="location.href = 'http://192.168.1.198/';" class="Shelly" />
+      <input type="button" value="Apartment" onclick="location.href = 'http://192.168.1.228/';" class="Shelly" />
+      <input type="button" value="Fountain" onclick="location.href = 'http://192.168.1.40/';" class="Shelly" />
+      <input type="button" value="Porch" onclick="location.href = 'http://192.168.1.93/';" class="Shelly" />
+    </div>
+
+    <div>
+      <input type="button" value="porch" onclick="location.href = '/shelly/porch/toggle';" class="Shelly" />
+    </div>
+
     <form method="POST" action="/form">     
       <label>Name</label><input name="name" type="text" value="" />
       <label>Address</label><input name="address" type="text" value="" />

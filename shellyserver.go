@@ -61,16 +61,29 @@ func ApartmentOff(w http.ResponseWriter, r *http.Request) {
 }
 
 func ApartmentToggle(w http.ResponseWriter, r *http.Request) {
-	var getstr = fmt.Sprintf("http://%s:%s@192.168.1.226/relay/0?turn=toggle", creds["user"], creds["password"])
+	var getstr = fmt.Sprintf("http://%s:%s@192.168.1.92/relay/0?turn=toggle", creds["user"], creds["password"])
+
 	resp, err := http.Get(getstr)
 	if err != nil {
 		// handle error
+	} else {
+		defer resp.Body.Close()
 	}
-	defer resp.Body.Close()
+}
+
+func PorchToggle(w http.ResponseWriter, r *http.Request) {
+	var getstr = fmt.Sprintf("http://%s:%s@192.168.1.93/relay/0?turn=toggle", creds["user"], creds["password"])
+
+	resp, err := http.Get(getstr)
+	if err != nil {
+		// handle error
+	} else {
+		defer resp.Body.Close()
+	}
 }
 
 func main() {
-	var port int = 8080
+	var port int = 9000
 
 	file, _ := ioutil.ReadFile("creds.json")
 	if err := json.Unmarshal(file, &creds); err != nil {
@@ -84,11 +97,14 @@ func main() {
 	http.HandleFunc("/shelly/apartment/on", ApartmentOn)
 	http.HandleFunc("/shelly/apartment/off", ApartmentOff)
 	http.HandleFunc("/shelly/apartment/toggle", ApartmentToggle)
+	http.HandleFunc("/shelly/porch/toggle", PorchToggle)
 
 	fmt.Printf("Starting server at port %d\n", port)
 
 	var servestr = fmt.Sprintf(":%d", port)
-	if err := http.ListenAndServe(servestr, nil); err != nil {
-		log.Fatal(err)
-	}
+	//if err := http.ListenAndServe(servestr, nil); err != nil {
+	//	log.Fatal(err)
+	//}
+
+	log.Fatal(http.ListenAndServeTLS(servestr, "localhost.crt", "localhost.key", nil))
 }
