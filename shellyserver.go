@@ -12,6 +12,9 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"text/template"
+
+	"github.com/gorilla/websocket"
 )
 
 /*
@@ -22,6 +25,53 @@ type Creds struct {
 
 var creds Creds
 */
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+}
+
+func wsEndpoint(w http.ResponseWriter, r *http.Request) {
+	upgrader.CheckOrigin = func(r *http.Request) bool { return true }
+
+	// upgrade this connection to a WebSocket
+	// connection
+	ws, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println(err)
+	}
+
+	log.Println("Client Connected")
+	err = ws.WriteMessage(1, []byte("Hi Client!"))
+	if err != nil {
+		log.Println(err)
+	}
+	// listen indefinitely for new messages coming
+	// through on our WebSocket connection
+	reader(ws)
+}
+
+// define a reader which will listen for
+// new messages being sent to our WebSocket
+// endpoint
+func reader(conn *websocket.Conn) {
+	for {
+		// read in a message
+		messageType, p, err := conn.ReadMessage()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		// print out that message for clarity
+		fmt.Println(string(p))
+
+		if err := conn.WriteMessage(messageType, p); err != nil {
+			log.Println(err)
+			return
+		}
+
+	}
+}
 
 var creds map[string]interface{}
 
@@ -82,6 +132,19 @@ func PorchToggle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func login(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("method:", r.Method) //get request method
+	if r.Method == "GET" {
+		t, _ := template.ParseFiles("login.gtpl")
+		t.Execute(w, nil)
+	} else {
+		r.ParseForm()
+		// logic part of log in
+		fmt.Println("username:", r.Form["username"])
+		fmt.Println("password:", r.Form["password"])
+	}
+}
+
 func main() {
 	var port int = 9000
 
@@ -92,7 +155,9 @@ func main() {
 
 	fileServer := http.FileServer(http.Dir("./public")) // New code
 	http.Handle("/", fileServer)                        // New code
-	http.HandleFunc("/hello", helloHandler)             // Update this line of code
+	http.HandleFunc("/login", login)
+	http.HandleFunc("/ws", wsEndpoint)
+	http.HandleFunc("/hello", helloHandler) // Update this line of code
 	http.HandleFunc("/form", formHandler)
 	http.HandleFunc("/shelly/apartment/on", ApartmentOn)
 	http.HandleFunc("/shelly/apartment/off", ApartmentOff)
@@ -106,5 +171,5 @@ func main() {
 	//	log.Fatal(err)
 	//}
 
-	log.Fatal(http.ListenAndServeTLS(servestr, "localhost.crt", "localhost.key", nil))
+	log.Fatal(http.ListenAndServeTLS(servestr, "cert.pem", "privkey.pem", nil))
 }

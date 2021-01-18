@@ -2,18 +2,34 @@
   <head>
     <title>Shelly Server</title>
   </head>
+  <script>
+
+    //let socket = new WebSocket("ws://127.0.0.1:8080/ws");
+
+    function SendCmd(url_str)
+    {
+      var xhttp = new XMLHttpRequest();
+      xhttp.onreadystatechange = function() {
+          if (this.readyState == 4 && this.status == 200) {
+              console.log('SendCmd: '+this.responseText);
+          }
+      };
+      var server_url = window.location.href
+      xhttp.open("GET", window.location.href+url_str);
+      xhttp.send();
+
+      return false
+    }
+  </script>
   <body>
     <div>
-      <input type="button" value="Stream" onclick="location.href = 'http://192.168.1.15/';" class="Shelly" />
-      <input type="button" value="Garage" onclick="location.href = 'http://192.168.1.16/';" class="Shelly" />
+      <input type="button" value="Stream" onclick="location.href = 'http://192.168.1.15/relay/0?turn=toggle';" class="Shelly" />
+      <input type="button" value="Garage" onclick="location.href = 'http://192.168.1.16/relay/0?turn=toggle';" class="Shelly" />
       <input type="button" value="Wall" onclick="location.href = 'http://192.168.1.198/';" class="Shelly" />
-      <input type="button" value="Apartment" onclick="location.href = 'http://192.168.1.228/';" class="Shelly" />
-      <input type="button" value="Fountain" onclick="location.href = 'http://192.168.1.40/';" class="Shelly" />
-      <input type="button" value="Porch" onclick="location.href = 'http://192.168.1.93/';" class="Shelly" />
-    </div>
+      <input type="button" value="Apartment" onclick="location.href = 'http://192.168.1.228/relay/0?turn=toggle';" class="Shelly" />
+      <input type="button" value="Fountain" onclick="location.href = 'http://192.168.1.40/relay/0?turn=toggle';" class="Shelly" />
+      <input type="button" value="Porch" onclick="return SendCmd('shelly/porch/toggle');" class="Shelly" />
 
-    <div>
-      <input type="button" value="porch" onclick="location.href = '/shelly/porch/toggle';" class="Shelly" />
     </div>
 
     <form method="POST" action="/form">     
