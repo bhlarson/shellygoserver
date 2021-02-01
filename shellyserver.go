@@ -17,14 +17,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-/*
-type Creds struct {
-	user     string `json:"user"`
-	password string `json:"password"`
-}
-
-var creds Creds
-*/
+// var creds map[string]interface{}
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
@@ -102,34 +95,59 @@ func formHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Address = %s\n", address)
 }
 
-func ApartmentOn(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("ApartmentOn\n")
+func ApartmentOn() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Printf("ApartmentOn\n")
+	})
 }
 
-func ApartmentOff(w http.ResponseWriter, r *http.Request) {
-	fmt.Printf("ApartmentOff\n")
+func ApartmentOff() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Printf("ApartmentOff\n")
+	})
 }
 
-func ApartmentToggle(w http.ResponseWriter, r *http.Request) {
-	var getstr = fmt.Sprintf("http://%s:%s@192.168.1.92/relay/0?turn=toggle", creds["user"], creds["password"])
-
-	resp, err := http.Get(getstr)
-	if err != nil {
-		// handle error
-	} else {
-		defer resp.Body.Close()
-	}
+func PorchOn() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Printf("PorchOn\n")
+	})
 }
 
-func PorchToggle(w http.ResponseWriter, r *http.Request) {
-	var getstr = fmt.Sprintf("http://%s:%s@192.168.1.93/relay/0?turn=toggle", creds["user"], creds["password"])
+func PorchOff() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Printf("PorchOff\n")
+	})
+}
 
-	resp, err := http.Get(getstr)
-	if err != nil {
-		// handle error
-	} else {
-		defer resp.Body.Close()
-	}
+func FileServer() http.Handler {
+	return http.FileServer(http.Dir("./public")) // New code
+}
+
+// func ApartmentToggle() (w http.ResponseWriter, r *http.Request) {
+func ApartmentToggle() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var getstr = fmt.Sprintf("http://%s:%s@192.168.1.92/relay/0?turn=toggle", creds["user"], creds["password"])
+
+		resp, err := http.Get(getstr)
+		if err != nil {
+			// handle error
+		} else {
+			defer resp.Body.Close()
+		}
+	})
+}
+
+func PorchToggle() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var getstr = fmt.Sprintf("http://%s:%s@192.168.1.93/relay/0?turn=toggle", creds["user"], creds["password"])
+
+		resp, err := http.Get(getstr)
+		if err != nil {
+			// handle error
+		} else {
+			defer resp.Body.Close()
+		}
+	})
 }
 
 func login(w http.ResponseWriter, r *http.Request) {
@@ -145,31 +163,48 @@ func login(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func serveHTTP(port int, errs chan<- error) {
+
+	mux := http.NewServeMux()
+
+	mux.Handle("/event/apartment/on", ApartmentOn())
+	mux.Handle("/event/apartment/off", ApartmentOff())
+	mux.Handle("/event/porch/on", PorchOn())
+	mux.Handle("/event/porch/off", PorchOff())
+	mux.Handle("/cmd/porch/on", PorchOn())
+	mux.Handle("/cmd/porch/off", PorchOff())
+
+	fmt.Printf("Starting server at port %d\n", port)
+	var servestr = fmt.Sprintf(":%d", port)
+	errs <- http.ListenAndServe(servestr, mux)
+}
+
+func serveHTTPS(port int, errs chan<- error) {
+	file, _ := ioutil.ReadFile("creds.json")
+	if err := json.Unmarshal(file, &creds); err != nil {
+		fmt.Println(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/", FileServer()) // New code
+	mux.Handle("/shelly/apartment/toggle", ApartmentToggle())
+	mux.Handle("/shelly/porch/toggle", PorchToggle())
+	fmt.Printf("Starting server at port %d\n", port)
+	var servestr = fmt.Sprintf(":%d", port)
+	errs <- http.ListenAndServeTLS(servestr, "cert.pem", "privkey.pem", mux)
+}
+
 func main() {
 	var port int = 9000
+	var tlsport int = 9001
 
 	file, _ := ioutil.ReadFile("creds.json")
 	if err := json.Unmarshal(file, &creds); err != nil {
 		fmt.Println(err)
 	}
 
-	fileServer := http.FileServer(http.Dir("./public")) // New code
-	http.Handle("/", fileServer)                        // New code
-	http.HandleFunc("/login", login)
-	http.HandleFunc("/ws", wsEndpoint)
-	http.HandleFunc("/hello", helloHandler) // Update this line of code
-	http.HandleFunc("/form", formHandler)
-	http.HandleFunc("/shelly/apartment/on", ApartmentOn)
-	http.HandleFunc("/shelly/apartment/off", ApartmentOff)
-	http.HandleFunc("/shelly/apartment/toggle", ApartmentToggle)
-	http.HandleFunc("/shelly/porch/toggle", PorchToggle)
-
-	fmt.Printf("Starting server at port %d\n", port)
-
-	var servestr = fmt.Sprintf(":%d", port)
-	//if err := http.ListenAndServe(servestr, nil); err != nil {
-	//	log.Fatal(err)
-	//}
-
-	log.Fatal(http.ListenAndServeTLS(servestr, "cert.pem", "privkey.pem", nil))
+	errs := make(chan error, 1)  // a channel for errors
+	go serveHTTP(port, errs)     // start the http server in a thread
+	go serveHTTPS(tlsport, errs) // start the https server in a thread
+	log.Fatal(<-errs)            // block until one of the servers writes an error
 }
