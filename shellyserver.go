@@ -7,12 +7,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"text/template"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -22,6 +24,22 @@ import (
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
+}
+
+var (
+	newline = []byte{'\n'}
+	space   = []byte{' '}
+)
+
+var clients = make(map[*websocket.Conn]bool) // connected clients
+var broadcast = make(chan Message)           // broadcast channel
+// Configure the upgrader
+
+// Define our message object
+type Message struct {
+	Email    string `json:"email"`
+	Username string `json:"username"`
+	Message  string `json:"message"`
 }
 
 func wsEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -123,6 +141,116 @@ func FileServer() http.Handler {
 	return http.FileServer(http.Dir("./public")) // New code
 }
 
+// Client is a middleman between the websocket connection and the hub.
+type Client struct {
+
+	// The websocket connection.
+	conn *websocket.Conn
+
+	// Buffered channel of outbound messages.
+	send chan []byte
+}
+
+// readPump pumps messages from the websocket connection to the hub.
+//
+// The application runs readPump in a per-connection goroutine. The application
+// ensures that there is at most one reader on a connection by executing all
+// reads from this goroutine.
+func (c *Client) readPump() {
+	defer func() {
+		c.conn.Close()
+	}()
+	c.conn.SetReadLimit(maxMessageSize)
+	c.conn.SetReadDeadline(time.Now().Add(pongWait))
+	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+	for {
+		_, message, err := c.conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("error: %v", err)
+			}
+			break
+		}
+		message = bytes.TrimSpace(bytes.Replace(message, newline, space, -1))
+	}
+}
+
+const (
+	// Time allowed to write a message to the peer.
+	writeWait = 10 * time.Second
+
+	// Time allowed to read the next pong message from the peer.
+	pongWait = 60 * time.Second
+
+	// Send pings to peer with this period. Must be less than pongWait.
+	pingPeriod = (pongWait * 9) / 10
+
+	// Maximum message size allowed from peer.
+	maxMessageSize = 512
+)
+
+// writePump pumps messages from the hub to the websocket connection.
+//
+// A goroutine running writePump is started for each connection. The
+// application ensures that there is at most one writer to a connection by
+// executing all writes from this goroutine.
+func (c *Client) writePump() {
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		c.conn.Close()
+	}()
+	for {
+		select {
+		case message, ok := <-c.send:
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if !ok {
+				// The hub closed the channel.
+				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+
+			w, err := c.conn.NextWriter(websocket.TextMessage)
+			if err != nil {
+				return
+			}
+			w.Write(message)
+
+			// Add queued chat messages to the current websocket message.
+			n := len(c.send)
+			for i := 0; i < n; i++ {
+				w.Write(newline)
+				w.Write(<-c.send)
+			}
+
+			if err := w.Close(); err != nil {
+				return
+			}
+		case <-ticker.C:
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func WebSocket() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		client := &Client{conn: conn, send: make(chan []byte, 256)}
+
+		// Allow collection of memory referenced by the caller by doing all work in
+		// new goroutines.
+		go client.writePump()
+		go client.readPump()
+	})
+}
+
 // func ApartmentToggle() (w http.ResponseWriter, r *http.Request) {
 func ApartmentToggle() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -150,6 +278,31 @@ func PorchToggle() http.Handler {
 	})
 }
 
+func WallHighToggle() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var getstr = fmt.Sprintf("http://%s:%s@192.168.1.198/relay/0?turn=toggle", creds["user"], creds["password"])
+
+		resp, err := http.Get(getstr)
+		if err != nil {
+			// handle error
+		} else {
+			defer resp.Body.Close()
+		}
+	})
+}
+func WallLowToggle() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var getstr = fmt.Sprintf("http://%s:%s@192.168.1.198/relay/1?turn=toggle", creds["user"], creds["password"])
+
+		resp, err := http.Get(getstr)
+		if err != nil {
+			// handle error
+		} else {
+			defer resp.Body.Close()
+		}
+	})
+}
+
 func login(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("method:", r.Method) //get request method
 	if r.Method == "GET" {
@@ -163,6 +316,12 @@ func login(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func EventHandler(s string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Printf(s)
+	})
+}
+
 func serveHTTP(port int, errs chan<- error) {
 
 	mux := http.NewServeMux()
@@ -171,8 +330,10 @@ func serveHTTP(port int, errs chan<- error) {
 	mux.Handle("/event/apartment/off", ApartmentOff())
 	mux.Handle("/event/porch/on", PorchOn())
 	mux.Handle("/event/porch/off", PorchOff())
-	mux.Handle("/cmd/porch/on", PorchOn())
-	mux.Handle("/cmd/porch/off", PorchOff())
+	mux.Handle("/event/wallhigh/on", EventHandler("Wall High On\n"))
+	mux.Handle("/event/wallhigh/off", EventHandler("Wall High Off\n"))
+	mux.Handle("/event/walllow/on", EventHandler("Wall Low On\n"))
+	mux.Handle("/event/walllow/off", EventHandler("Wall Low Off\n"))
 
 	fmt.Printf("Starting server at port %d\n", port)
 	var servestr = fmt.Sprintf(":%d", port)
@@ -186,17 +347,20 @@ func serveHTTPS(port int, errs chan<- error) {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/", FileServer()) // New code
+	mux.Handle("/", FileServer())   // New code
+	mux.Handle("/wss", WebSocket()) // New code
 	mux.Handle("/shelly/apartment/toggle", ApartmentToggle())
 	mux.Handle("/shelly/porch/toggle", PorchToggle())
+	mux.Handle("/shelly/porch/toggle_high", WallHighToggle())
+	mux.Handle("/shelly/porch/toggle_low", WallLowToggle())
 	fmt.Printf("Starting server at port %d\n", port)
 	var servestr = fmt.Sprintf(":%d", port)
 	errs <- http.ListenAndServeTLS(servestr, "cert.pem", "privkey.pem", mux)
 }
 
 func main() {
-	var port int = 9000
-	var tlsport int = 9001
+	var port int = 7863
+	var tlsport int = 7862
 
 	file, _ := ioutil.ReadFile("creds.json")
 	if err := json.Unmarshal(file, &creds); err != nil {
