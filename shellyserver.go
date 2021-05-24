@@ -19,7 +19,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// var creds map[string]interface{}
+// var config map[string]interface{}
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
@@ -84,7 +84,18 @@ func reader(conn *websocket.Conn) {
 	}
 }
 
-var creds map[string]interface{}
+// {"name":"Wall High", "address":"192.168.0.115", "device":"shelly2.5","user":"brad", "password":"unstable" },
+
+type ShellyDevice struct {
+	name     string
+	address  string
+	relay    int
+	device   string
+	user     string
+	password string
+}
+
+var config []ShellyDevice
 
 func helloHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/hello" {
@@ -254,7 +265,7 @@ func WebSocket() http.Handler {
 // func ApartmentToggle() (w http.ResponseWriter, r *http.Request) {
 func ApartmentToggle() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var getstr = fmt.Sprintf("http://%s:%s@192.168.1.92/relay/0?turn=toggle", creds["user"], creds["password"])
+		var getstr = fmt.Sprintf("http://%s:%s@192.168.1.92/relay/0?turn=toggle", config[0].user, config[0].password)
 
 		resp, err := http.Get(getstr)
 		if err != nil {
@@ -267,7 +278,7 @@ func ApartmentToggle() http.Handler {
 
 func PorchToggle() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var getstr = fmt.Sprintf("http://%s:%s@192.168.1.93/relay/0?turn=toggle", creds["user"], creds["password"])
+		var getstr = fmt.Sprintf("http://%s:%s@192.168.1.93/relay/0?turn=toggle", config[0].user, config[0].password)
 
 		resp, err := http.Get(getstr)
 		if err != nil {
@@ -280,7 +291,7 @@ func PorchToggle() http.Handler {
 
 func WallHighToggle() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var getstr = fmt.Sprintf("http://%s:%s@192.168.1.198/relay/0?turn=toggle", creds["user"], creds["password"])
+		var getstr = fmt.Sprintf("http://%s:%s@192.168.1.198/relay/0?turn=toggle", config[0].user, config[0].password)
 
 		resp, err := http.Get(getstr)
 		if err != nil {
@@ -292,7 +303,7 @@ func WallHighToggle() http.Handler {
 }
 func WallLowToggle() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var getstr = fmt.Sprintf("http://%s:%s@192.168.1.198/relay/1?turn=toggle", creds["user"], creds["password"])
+		var getstr = fmt.Sprintf("http://%s:%s@192.168.1.198/relay/1?turn=toggle", config[0].user, config[0].password)
 
 		resp, err := http.Get(getstr)
 		if err != nil {
@@ -341,8 +352,8 @@ func serveHTTP(port int, errs chan<- error) {
 }
 
 func serveHTTPS(port int, errs chan<- error) {
-	file, _ := ioutil.ReadFile("creds.json")
-	if err := json.Unmarshal(file, &creds); err != nil {
+	file, _ := ioutil.ReadFile("config.json")
+	if err := json.Unmarshal(file, &config); err != nil {
 		fmt.Println(err)
 	}
 
@@ -362,10 +373,12 @@ func main() {
 	var port int = 7863
 	var tlsport int = 7862
 
-	file, _ := ioutil.ReadFile("creds.json")
-	if err := json.Unmarshal(file, &creds); err != nil {
+	file, _ := ioutil.ReadFile("config.json")
+	err := json.Unmarshal(file, &config)
+	if err != nil {
 		fmt.Println(err)
 	}
+	fmt.Println(config)
 
 	errs := make(chan error, 1)  // a channel for errors
 	go serveHTTP(port, errs)     // start the http server in a thread
